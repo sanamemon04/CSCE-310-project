@@ -41,8 +41,9 @@ public class RegisterScreen extends JFrame {
         // Buttons
         registerButton = new JButton("Register");
         backButton = new JButton("Back");
-        panel.add(registerButton);
         panel.add(backButton);
+        panel.add(registerButton);
+        
 
         add(panel);
 

@@ -8,6 +8,7 @@ from email.mime.multipart import MIMEMultipart
 import os
 import logging
 from dotenv import load_dotenv
+from datetime import datetime, timedelta 
 
 load_dotenv()
 app = Flask(__name__)
@@ -23,7 +24,7 @@ db = mysql.connector.connect(
     host="localhost",
     user="root",
     password="012604",
-    database="bookstore"
+    database="bookstore2"
 )
 cursor = db.cursor(dictionary=True)
 
@@ -87,6 +88,7 @@ def search_books():
     # Normalize isAvailable -> True/False so Gson on the Java side parses booleans, not numbers
     for r in rows:
         r['isAvailable'] = bool(r.get('isAvailable'))
+        r['copies'] = int(r.get('copies') or 0)
 
     return jsonify(rows)
 
@@ -116,11 +118,20 @@ def place_order():
     for item in items:
         if "bookID" not in item or "action" not in item:
             return jsonify({"error": "Each item must contain bookID and action"}), 400
+        
+        qty = int(item.get("quantity", 1))
+        if qty <= 0:
+            return jsonify({"error": "Quantity must be >= 1"}), 400
 
         cursor.execute("SELECT * FROM Book WHERE bookID=%s", (item["bookID"],))
         book = cursor.fetchone()
         if not book:
             return jsonify({"error": f"BookID {item['bookID']} not exist"}), 400
+        
+        copies = int(book.get("copies") or 0)
+        if copies < qty:
+            return jsonify({"error": f"Not enough copies for BookID {item['bookID']}. Available: {copies}"}), 400
+
 
         # Normalize MySQL boolean/int -> Python bool
         if not book.get("isAvailable"):
@@ -129,15 +140,16 @@ def place_order():
         action = item.get("action")
         if action == "buy":
             transactionType = "buy"
-            price = float(book["buyPrice"])
+            unit_price = float(book["buyPrice"])
         elif action == "rent":
             transactionType = "rent"
-            price = float(book["rentPrice"])
+            unit_price = float(book["rentPrice"])
         else:
             return jsonify({"error": f"No valid action for bookID {item['bookID']}"}), 400
 
-        validated.append((item["bookID"], transactionType, price, book.get("title")))
-        totalAmount += price
+        line_price = unit_price * qty           # total for this line
+        validated.append((item["bookID"], transactionType, line_price, book.get("title"), qty))
+        totalAmount += line_price
     # All items validated -> perform inserts in one transaction
     try:
         cursor.execute(
@@ -147,19 +159,34 @@ def place_order():
         orderID = cursor.lastrowid
 
         bill_items = []
-        for bookID, transactionType, price, title in validated:
+        for bookID, transactionType, price, title, qty in validated:
+            now = datetime.utcnow()
+            due = None
+            if transactionType == "rent":
+                due_dt = now + timedelta(days=14)  # default 14-day rent
+                due = due_dt.strftime("%Y-%m-%d %H:%M:%S")
+            
             cursor.execute("""
-                INSERT INTO OrderItems (orderID, bookID, transactionType, price)
-                VALUES (%s, %s, %s, %s)
-            """, (orderID, bookID, transactionType, price))
+                INSERT INTO OrderItems (orderID, bookID, transactionType, price, dueDate, isReturned)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (orderID, bookID, transactionType, price, due, False))
 
             # Mark as unavailable after any purchase/rent so manager can re-enable later
-            cursor.execute("UPDATE Book SET isAvailable=0 WHERE bookID=%s", (bookID,))
+            # cursor.execute("UPDATE Book SET isAvailable=0 WHERE bookID=%s", (bookID,))
+            
+            cursor.execute("""
+                UPDATE Book
+                SET copies = copies - %s,
+                    isAvailable = IF(copies - %s > 0, 1, 0)
+                WHERE bookID = %s
+            """, (qty, qty, bookID))
+
 
             bill_items.append({
                 "title": title,
                 "transactionType": transactionType,
-                "price": price
+                "price": price,
+                "quantity": qty
             })
 
         db.commit()
@@ -323,7 +350,7 @@ def all_orders():
         item_cursor = db.cursor(dictionary=True)
         try:
             item_cursor.execute("""
-                SELECT oi.itemID, oi.bookID, oi.transactionType, oi.price, b.title
+                SELECT oi.itemID, oi.bookID, oi.transactionType, oi.price, oi.quantity, oi.dueDate, oi.isReturned, b.title
                 FROM OrderItems oi
                 LEFT JOIN Book b ON oi.bookID = b.bookID
                 WHERE oi.orderID = %s
@@ -383,6 +410,7 @@ def all_books():
     # normalize isAvailable to real boolean so Java Gson maps correctly
     for r in rows:
         r['isAvailable'] = bool(r.get('isAvailable'))
+        r['copies'] = int(r.get('copies') or 0)
     return jsonify(rows)
 
 # -------------------------------------
@@ -426,39 +454,53 @@ def update_book_availability():
     return jsonify({"message": "Availability updated"})
 
 # ---------- New: User's own orders ----------
+# ...existing code...
 @app.get('/orders/my')
 @jwt_required()
 def my_orders():
     userID = int(get_jwt_identity())
-    cursor.execute("SELECT * FROM Orders WHERE userID=%s", (userID,))
-    orders = cursor.fetchall() or []
+    cur = db.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT * FROM Orders WHERE userID=%s ORDER BY orderDate DESC", (userID,))
+        orders = cur.fetchall() or []
 
-    for o in orders:
-        item_cursor = db.cursor(dictionary=True)
-        try:
-            item_cursor.execute("""
-                SELECT oi.itemID, oi.bookID, oi.transactionType, oi.price, b.title
-                FROM OrderItems oi
-                LEFT JOIN Book b ON oi.bookID = b.bookID
-                WHERE oi.orderID = %s
-            """, (o['orderID'],))
-            items = item_cursor.fetchall() or []
-        finally:
-            item_cursor.close()
+        for o in orders:
+            # normalize numeric/decimal types
+            o['orderID'] = int(o['orderID'])
+            o['userID'] = int(o['userID'])
+            o['totalAmount'] = float(o['totalAmount']) if o.get('totalAmount') is not None else 0.0
 
-        for it in items:
+            item_cursor = db.cursor(dictionary=True)
             try:
-                it['price'] = float(it.get('price') or 0.0)
-            except Exception:
-                it['price'] = 0.0
-            if not it.get('transactionType'):
-                it['transactionType'] = 'buy'
-            if 'title' not in it:
-                it['title'] = None
-        
-        o['items'] = items
+                item_cursor.execute("""
+                    SELECT oi.itemID, oi.bookID, oi.transactionType, oi.price, oi.quantity, oi.dueDate, oi.isReturned, b.title
+                    FROM OrderItems oi
+                    LEFT JOIN Book b ON oi.bookID = b.bookID
+                    WHERE oi.orderID = %s
+                """, (o['orderID'],))
+                items = item_cursor.fetchall() or []
+            finally:
+                item_cursor.close()
 
-    return jsonify(orders)
+            # normalize item fields
+            for it in items:
+                it['itemID'] = int(it['itemID'])
+                it['bookID'] = int(it['bookID'])
+                it['price'] = float(it['price']) if it.get('price') is not None else 0.0
+                it['quantity'] = int(it.get('quantity') or 1)
+                it['isReturned'] = bool(it.get('isReturned'))
+                # dueDate may be None; keep as string if present
+                if it.get('dueDate') is not None:
+                    it['dueDate'] = it['dueDate'].strftime('%Y-%m-%d %H:%M:%S') if hasattr(it['dueDate'], 'strftime') else str(it['dueDate'])
+                if 'title' not in it:
+                    it['title'] = None
+
+            o['items'] = items
+
+        return jsonify(orders)
+    finally:
+        cur.close()
+# ...existing code...
 
 # GET reviews for a book
 @app.get('/books/<int:book_id>/reviews')
@@ -509,6 +551,76 @@ def post_book_review(book_id):
             rcur.close()
     finally:
         cur.close()
+
+# ---------- New: Return a rented item ----------
+@app.post('/orders/return')
+@jwt_required()
+def return_rental():
+    data = request.get_json() or {}
+    itemID = data.get("itemID")
+    if not itemID:
+        return jsonify({"error": "itemID required"}), 400
+
+    userID = int(get_jwt_identity())
+
+    # verify this order item belongs to a rental by this user and not already returned
+    cursor.execute("""
+        SELECT oi.itemID, oi.bookID, oi.transactionType, oi.isReturned, o.userID
+        FROM OrderItems oi
+        JOIN Orders o ON oi.orderID = o.orderID
+        WHERE oi.itemID = %s
+    """, (itemID,))
+    row = cursor.fetchone()
+    if not row:
+        return jsonify({"error": "Order item not found"}), 404
+    if int(row.get("userID")) != userID:
+        return jsonify({"error": "Not authorized to return this item"}), 403
+    if row.get("transactionType") != "rent":
+        return jsonify({"error": "Only rented items can be returned"}), 400
+    if row.get("isReturned"):
+        return jsonify({"error": "Item already returned"}), 400
+    
+    bookID = row.get("bookID")
+    try:
+        # mark returned and increment book copies
+        cursor.execute("UPDATE OrderItems SET isReturned=1 WHERE itemID=%s", (itemID,))
+        cursor.execute("""
+            UPDATE Book
+            SET copies = copies + 1,
+                isAvailable = 1
+            WHERE bookID = %s
+        """, (bookID,))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        app.logger.exception("Failed to process return")
+        return jsonify({"error": "Failed to process return"}), 500
+
+    return jsonify({"message": "Return successful", "itemID": itemID})
+
+
+# ---------- New: Manager set copies ----------
+@app.post('/books/copies')
+@jwt_required()
+def set_book_copies():
+    claims = get_jwt()
+    if claims["userType"] != "manager":
+        return jsonify({"error": "Only managers can set copies"}), 403
+
+    data = request.json or {}
+    bookID = data.get("bookID")
+    copies = data.get("copies")
+    if bookID is None or copies is None:
+        return jsonify({"error": "bookID and copies required"}), 400
+    try:
+        copies = int(copies)
+    except:
+        return jsonify({"error": "copies must be integer"}), 400
+
+    cursor.execute("UPDATE Book SET copies=%s, isAvailable=IF(%s>0,1,0) WHERE bookID=%s", (copies, copies, bookID))
+    db.commit()
+    return jsonify({"message": "Copies updated", "bookID": bookID, "copies": copies})
+
 
 # -------------------------------------
 # Run Server

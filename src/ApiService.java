@@ -3,6 +3,8 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 import com.google.gson.*;
+import com.google.gson.reflect.TypeToken;
+import java.lang.reflect.Type;
 
 import models.Book;
 import models.User;
@@ -163,7 +165,7 @@ public static java.util.List<Book> searchBooks(String token, String query) throw
 
     // ---------------- Manager: Get All Orders ----------------
     public static JsonArray getAllOrders() throws IOException {
-        if (currentUser == null) throw new IOException("Not logged in");
+        if (currentUser == null || currentUser.getToken() == null) throw new IOException("Not logged in");
 
         URL url = new URL("http://127.0.0.1:5000/orders/all");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -172,19 +174,16 @@ public static java.util.List<Book> searchBooks(String token, String query) throw
 
         int responseCode = conn.getResponseCode();
         InputStream is = (responseCode == 200) ? conn.getInputStream() : conn.getErrorStream();
-        BufferedReader in = new BufferedReader(new InputStreamReader(is));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = in.readLine()) != null) sb.append(line);
-        in.close();
-
-        if (responseCode != 200) throw new IOException("Fetch orders failed: " + sb.toString());
-        return JsonParser.parseString(sb.toString()).getAsJsonArray();
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(is))) {
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            if (responseCode != 200) throw new IOException("Fetch all books failed: " + sb.toString());
+            return JsonParser.parseString(sb.toString()).getAsJsonArray();
+        }
     }
 
     // ---------------- Manager: Get All Books (Inventory) ----------------
-    public static java.util.List<Book> getAllBooks() throws IOException {
-        if (currentUser == null) throw new IOException("Not logged in");
+     public static com.google.gson.JsonArray getAllBooks() throws IOException {
 
         URL url = new URL("http://127.0.0.1:5000/books/all");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -193,18 +192,21 @@ public static java.util.List<Book> searchBooks(String token, String query) throw
 
         int responseCode = conn.getResponseCode();
         InputStream is = (responseCode == 200) ? conn.getInputStream() : conn.getErrorStream();
-        BufferedReader in = new BufferedReader(new InputStreamReader(is));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = in.readLine()) != null) sb.append(line);
-        in.close();
-
-        if (responseCode != 200) throw new IOException("Fetch books failed: " + sb.toString());
-
-        Gson gson = new Gson();
-        Book[] books = gson.fromJson(sb.toString(), Book[].class);
-        return java.util.Arrays.asList(books);
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(is))) {
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            if (responseCode != 200) throw new IOException("Fetch all books failed: " + sb.toString());
+            return JsonParser.parseString(sb.toString()).getAsJsonArray();
+        }
     }
+
+    public static List<Book> getAllBooksAsList() throws IOException {
+        com.google.gson.JsonArray arr = getAllBooks();
+        Gson gson = new Gson();
+        Type listType = new TypeToken<List<Book>>() {}.getType();
+        return gson.fromJson(arr, listType);
+    }
+
 
         // ---------------- Manager: Update Book Availability ----------------
     public static void updateBookAvailability(int bookID, boolean isAvailable) throws IOException {
@@ -305,7 +307,7 @@ public static java.util.List<Book> searchBooks(String token, String query) throw
 
     // ---------------- Customer: Get My Orders ----------------
     public static JsonArray getMyOrders() throws IOException {
-        if (currentUser == null) throw new IOException("Not logged in");
+        if (currentUser == null || currentUser.getToken() == null) throw new IOException("Not logged in");
 
         URL url = new URL("http://127.0.0.1:5000/orders/my");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -314,14 +316,71 @@ public static java.util.List<Book> searchBooks(String token, String query) throw
 
         int responseCode = conn.getResponseCode();
         InputStream is = (responseCode == 200) ? conn.getInputStream() : conn.getErrorStream();
-        BufferedReader in = new BufferedReader(new InputStreamReader(is));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = in.readLine()) != null) sb.append(line);
-        in.close();
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(is))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            if (responseCode != 200) throw new IOException("Fetch my orders failed: " + sb.toString());
+            return JsonParser.parseString(sb.toString()).getAsJsonArray();
+        }
+    
+    }
 
-        if (responseCode != 200) throw new IOException("Fetch my orders failed: " + sb.toString());
-        return JsonParser.parseString(sb.toString()).getAsJsonArray();
+
+    // ---------------- Customer: Return Rental ----------------
+    public static void returnRental(int itemID) throws IOException {
+        if (currentUser == null) throw new IOException("Not logged in");
+
+        URL url = new URL("http://127.0.0.1:5000/orders/return");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + currentUser.getToken());
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        JsonObject payload = new JsonObject();
+        payload.addProperty("itemID", itemID);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(payload.toString().getBytes("utf-8"));
+        }
+
+        int code = conn.getResponseCode();
+        InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(is))) {
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            if (code < 200 || code >= 300) throw new IOException("Return failed: " + sb.toString());
+        }
+    }
+
+
+     // ---------------- Manager: Set Book Copies ----------------
+    public static void updateBookCopies(int bookID, int copies) throws IOException {
+        if (currentUser == null) throw new IOException("Not logged in");
+
+        URL url = new URL("http://127.0.0.1:5000/books/copies");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + currentUser.getToken());
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        JsonObject payload = new JsonObject();
+        payload.addProperty("bookID", bookID);
+        payload.addProperty("copies", copies);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(payload.toString().getBytes("utf-8"));
+        }
+
+        int code = conn.getResponseCode();
+        if (code != 200) {
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getErrorStream()));
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            throw new IOException("Update copies failed: " + sb.toString());
+        }
     }
 
 

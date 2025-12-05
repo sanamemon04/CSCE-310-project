@@ -23,6 +23,7 @@ public class CustomerScreen extends JFrame {
     private java.util.List<OrderItem> cart;
     private JButton profileButton;
     private JButton reviewsButton; 
+    private JButton viewAllButton;
     
 
     public CustomerScreen(User user) {
@@ -43,14 +44,19 @@ public class CustomerScreen extends JFrame {
         JPanel topPanel = new JPanel();
         searchField = new JTextField(30);
         searchButton = new JButton("Search");
+        viewAllButton = new JButton("View All Books");
         topPanel.add(searchField);
         topPanel.add(searchButton);
+        topPanel.add(viewAllButton);
         panel.add(topPanel, BorderLayout.NORTH);
 
         // Table
-        String[] columns = {"ID", "Title", "Author", "Buy Price", "Rent Price", "Available", "Action"};
+        String[] columns = {"ID", "Title", "Author", "Buy Price", "Rent Price", "Available", "Copies","Action"};
         bookTableModel = new DefaultTableModel(columns, 0) {
-            public boolean isCellEditable(int row, int column) { return column == 6; }
+            @Override public boolean isCellEditable(int row, int column) {
+                // Allow editing only the Action column (last column)
+                return column == (getColumnCount() - 1);
+            }
         };
         bookTable = new JTable(bookTableModel);
         bookTable.setRowHeight(28); // slightly taller
@@ -59,41 +65,63 @@ public class CustomerScreen extends JFrame {
         // Dropdown always visible
         JComboBox<String> actionCombo = new JComboBox<>(new String[]{"buy", "rent"});
         actionCombo.setMaximumRowCount(2);
-        TableColumn actionCol = bookTable.getColumnModel().getColumn(6);
+        TableColumn actionCol = bookTable.getColumnModel().getColumn(bookTableModel.findColumn("Action"));
         actionCol.setCellEditor(new DefaultCellEditor(actionCombo));
         actionCol.setCellRenderer(new DefaultTableCellRenderer() {
-            public Component getTableCellRendererComponent(JTable table, Object value,
-                                                           boolean isSelected, boolean hasFocus,
-                                                           int row, int column) {
-                JComboBox<String> combo = new JComboBox<>(new String[]{"buy", "rent"});
-                combo.setSelectedItem(value);
-                return combo;
+            @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                                                                     boolean hasFocus, int row, int column) {
+                JLabel l = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                l.setText(value == null ? "buy" : value.toString());
+                return l;
             }
         });
 
         panel.add(new JScrollPane(bookTable), BorderLayout.CENTER);
 
         // Bottom buttons
+        // JPanel bottom = new JPanel();
+        // addToCartButton = new JButton("Add to Cart");
+        // viewCartButton = new JButton("View Cart");
+        // placeOrderButton = new JButton("Place Order");
+        // logoutButton = new JButton("Logout");
+        // profileButton = new JButton("Profile"); 
+        // reviewsButton = new JButton("Reviews");
+
+        // bottom.add(profileButton); 
+        // bottom.add(addToCartButton);
+        // bottom.add(viewCartButton);
+        // bottom.add(placeOrderButton);
+        // bottom.add(reviewsButton);
+        // bottom.add(logoutButton);
+        // panel.add(bottom, BorderLayout.SOUTH);''
         JPanel bottom = new JPanel();
+        JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+
         addToCartButton = new JButton("Add to Cart");
         viewCartButton = new JButton("View Cart");
         placeOrderButton = new JButton("Place Order");
         logoutButton = new JButton("Logout");
-        profileButton = new JButton("Profile"); 
+        profileButton = new JButton("Profile");
         reviewsButton = new JButton("Reviews");
 
-        bottom.add(profileButton); 
-        bottom.add(addToCartButton);
-        bottom.add(viewCartButton);
-        bottom.add(placeOrderButton);
-        bottom.add(logoutButton);
-        bottom.add(reviewsButton);
+        leftButtons.add(profileButton);
+        leftButtons.add(addToCartButton);
+        leftButtons.add(viewCartButton);
+        leftButtons.add(placeOrderButton);
+        leftButtons.add(reviewsButton);
+
+        rightButtons.add(logoutButton); // logout on the right
+
+        bottom.add(leftButtons);
+        bottom.add(rightButtons);
         panel.add(bottom, BorderLayout.SOUTH);
 
         add(panel);
 
         // Actions
         searchButton.addActionListener(e -> searchBooks());
+        viewAllButton.addActionListener(e -> viewAllBooks());
         addToCartButton.addActionListener(e -> addToCart());
         viewCartButton.addActionListener(e -> viewCart());
         placeOrderButton.addActionListener(e -> placeOrder());
@@ -120,6 +148,7 @@ public class CustomerScreen extends JFrame {
                         b.getBuyPrice(),
                         b.getRentPrice(),
                         b.isAvailable() ? "Yes" : "No",
+                        b.getCopies(),
                         "buy"
                 });
             }
@@ -129,9 +158,41 @@ public class CustomerScreen extends JFrame {
         }
     }
 
+    private void viewAllBooks() {
+        try {
+            JsonArray arr = ApiService.getAllBooks();
+            populateBooksFromJson(arr);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Failed to load books: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    private void populateBooksFromJson(JsonArray arr) {
+        bookTableModel.setRowCount(0);
+        for (JsonElement el : arr) {
+            JsonObject b = el.getAsJsonObject();
+            int id = b.has("bookID") && !b.get("bookID").isJsonNull() ? b.get("bookID").getAsInt() : -1;
+            String title = b.has("title") && !b.get("title").isJsonNull() ? b.get("title").getAsString() : "";
+            String author = b.has("author") && !b.get("author").isJsonNull() ? b.get("author").getAsString() : "";
+            double buy = b.has("buyPrice") && !b.get("buyPrice").isJsonNull() ? b.get("buyPrice").getAsDouble() : 0.0;
+            double rent = b.has("rentPrice") && !b.get("rentPrice").isJsonNull() ? b.get("rentPrice").getAsDouble() : 0.0;
+            boolean avail = b.has("isAvailable") && !b.get("isAvailable").isJsonNull() && b.get("isAvailable").getAsBoolean();
+            int copies = b.has("copies") && !b.get("copies").isJsonNull() ? b.get("copies").getAsInt() : 0;
+
+            bookTableModel.addRow(new Object[]{id, title, author, String.format("%.2f", buy), String.format("%.2f", rent), avail, copies, "buy"});
+        }
+    }
+
+    // ...existing code...
     private void addToCart() {
-        int[] rows = bookTable.getSelectedRows();
-        if (rows.length == 0) {
+        // commit any in-progress edit (e.g. action combobox)
+        if (bookTable.isEditing()) {
+            try { bookTable.getCellEditor().stopCellEditing(); } catch (Exception ignored) {}
+        }
+
+        int[] viewRows = bookTable.getSelectedRows();
+        if (viewRows.length == 0) {
             JOptionPane.showMessageDialog(this, "Select books to add.");
             return;
         }
@@ -139,35 +200,48 @@ public class CustomerScreen extends JFrame {
         java.util.List<String> skipped = new ArrayList<>();
         int addedCount = 0;
 
-        for (int r : rows) {
-            int bookID = (int) bookTableModel.getValueAt(r, 0);
-            String title = (String) bookTableModel.getValueAt(r, 1);
-            String author = (String) bookTableModel.getValueAt(r, 2);
-            double buyPrice = (double) bookTableModel.getValueAt(r, 3);
-            double rentPrice = (double) bookTableModel.getValueAt(r, 4);
-            boolean avail = "Yes".equals(String.valueOf(bookTableModel.getValueAt(r, 5)));
-            String action = (String) bookTableModel.getValueAt(r, 6);
+        for (int vr : viewRows) {
+            int row = bookTable.convertRowIndexToModel(vr); // handle sorting/filtering
+            Object idObj = bookTableModel.getValueAt(row, 0);
+            if (idObj == null) continue;
+            int bookID = (idObj instanceof Number) ? ((Number) idObj).intValue() : Integer.parseInt(idObj.toString());
 
-            if (!avail) {
+            String title = String.valueOf(bookTableModel.getValueAt(row, 1));
+            String author = String.valueOf(bookTableModel.getValueAt(row, 2));
+
+            Object buyObj = bookTableModel.getValueAt(row, 3);
+            double buyPrice = (buyObj instanceof Number) ? ((Number) buyObj).doubleValue() : Double.parseDouble(String.valueOf(buyObj));
+
+            Object rentObj = bookTableModel.getValueAt(row, 4);
+            double rentPrice = (rentObj instanceof Number) ? ((Number) rentObj).doubleValue() : Double.parseDouble(String.valueOf(rentObj));
+
+            Object availObj = bookTableModel.getValueAt(row, 5);
+            boolean avail = "Yes".equalsIgnoreCase(String.valueOf(availObj)) || "true".equalsIgnoreCase(String.valueOf(availObj));
+
+            Object copiesObj = bookTableModel.getValueAt(row, 6);
+            int copies = (copiesObj instanceof Number) ? ((Number) copiesObj).intValue() : Integer.parseInt(String.valueOf(copiesObj));
+
+            Object actionObj = bookTableModel.getValueAt(row, 7);
+            String action = actionObj == null ? "buy" : actionObj.toString();
+
+            if (!avail || copies <= 0) {
                 skipped.add(title + " (ID:" + bookID + ")");
-                continue; // do not add unavailable book
+                continue;
             }
 
             Book book = new Book(bookID, title, author, buyPrice, rentPrice, avail);
-            cart.add(new OrderItem(book, action));
-                        addedCount++;
-
+            book.setCopies(copies);
+            cart.add(new OrderItem(book, action)); // uses existing nested OrderItem
+            addedCount++;
         }
 
-        String msg = "";
-        if (addedCount > 0) msg += "Added " + addedCount + " item(s) to cart.";
-        if (!skipped.isEmpty()) {
-            if (!msg.isEmpty()) msg += "\n";
-            msg += "The following items were unavailable and were not added:\n" + String.join(", ", skipped);
-        }
-        JOptionPane.showMessageDialog(this, msg);
-        // JOptionPane.showMessageDialog(this, "Added to cart.");
+        StringBuilder msg = new StringBuilder();
+        msg.append("Added ").append(addedCount).append(" item").append(addedCount == 1 ? "" : "s").append(" to cart.");
+        if (!skipped.isEmpty()) msg.append(" Skipped: ").append(String.join(", ", skipped));
+
+        JOptionPane.showMessageDialog(this, msg.toString());
     }
+// ...existing code...
 
     private void viewCart() {
         if (cart.isEmpty()) {
@@ -240,6 +314,7 @@ public class CustomerScreen extends JFrame {
             }
 
             StringBuilder sb = new StringBuilder();
+             java.util.List<Integer> returnableItemIDs = new ArrayList<>();
             for (JsonElement el : orders) {
                 JsonObject o = el.getAsJsonObject();
                 sb.append("Order ID: ").append(o.get("orderID").getAsString())
@@ -250,10 +325,18 @@ public class CustomerScreen extends JFrame {
                 if (o.has("items") && o.get("items").isJsonArray()) {
                     for (JsonElement itEl : o.getAsJsonArray("items")) {
                         JsonObject it = itEl.getAsJsonObject();
-                        sb.append("  - ").append(it.has("title") && !it.get("title").isJsonNull() ? it.get("title").getAsString() : ("Book#" + it.get("bookID").getAsInt()))
+                        int itemID = it.has("itemID") ? it.get("itemID").getAsInt() : -1;
+                        boolean isReturned = it.has("isReturned") && !it.get("isReturned").isJsonNull() && it.get("isReturned").getAsBoolean();
+                        String title = it.has("title") && !it.get("title").isJsonNull() ? it.get("title").getAsString() : ("Book#" + it.get("bookID").getAsInt());
+                        sb.append("  - [ItemID:").append(itemID).append("] ").append(title)
                           .append(" (").append(it.get("transactionType").getAsString()).append(") $")
-                          .append(String.format("%.2f", it.get("price").getAsDouble()))
-                          .append("\n");
+                          .append(String.format("%.2f", it.get("price").getAsDouble()));
+                        if (it.get("transactionType").getAsString().equals("rent")) {
+                            sb.append("  Due: ").append(it.has("dueDate") && !it.get("dueDate").isJsonNull() ? it.get("dueDate").getAsString() : "N/A");
+                            sb.append("  Returned: ").append(isReturned ? "Yes" : "No");
+                            if (!isReturned) returnableItemIDs.add(itemID);
+                        }
+                        sb.append("\n");
                     }
                 } else {
                     sb.append("  (no items)\n");
@@ -268,6 +351,31 @@ public class CustomerScreen extends JFrame {
             JScrollPane sp = new JScrollPane(ta);
             sp.setPreferredSize(new Dimension(700, 400));
             JOptionPane.showMessageDialog(this, sp, "Order History", JOptionPane.INFORMATION_MESSAGE);
+
+
+            if (!returnableItemIDs.isEmpty()) {
+                int confirm = JOptionPane.showConfirmDialog(this,
+                        "You have unreturned rentals. Return one now?",
+                        "Return Rental", JOptionPane.YES_NO_OPTION);
+                if (confirm == JOptionPane.YES_OPTION) {
+                    String input = JOptionPane.showInputDialog(this, "Enter ItemID to return (examples: " + returnableItemIDs.toString() + "):");
+                    if (input != null && !input.isEmpty()) {
+                        try {
+                            int itemID = Integer.parseInt(input.trim());
+                            if (!returnableItemIDs.contains(itemID)) {
+                                JOptionPane.showMessageDialog(this, "ItemID not returnable or invalid.");
+                            } else {
+                                ApiService.returnRental(itemID);
+                                JOptionPane.showMessageDialog(this, "Return processed.");
+                            }
+                        } catch (NumberFormatException nfe) {
+                            JOptionPane.showMessageDialog(this, "Invalid ItemID.");
+                        } catch (Exception ex) {
+                            JOptionPane.showMessageDialog(this, "Return failed: " + ex.getMessage());
+                        }
+                    }
+                }
+            }
 
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Failed to load profile: " + ex.getMessage());

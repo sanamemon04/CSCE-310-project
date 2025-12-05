@@ -216,24 +216,26 @@ public class ManagerScreen extends JFrame {
             return;
         }
         Book book = (Book) sel;
-        String msg = String.format("Book: %s\nCurrent availability: %s\n\nSet to available?", 
-                                   book.getTitle(), book.isAvailable() ? "Yes" : "No");
-        int ans = JOptionPane.showConfirmDialog(this, msg, "Update Availability", JOptionPane.YES_NO_OPTION);
-        boolean newAvail = (ans == JOptionPane.YES_OPTION);
-
+        String copiesStr = JOptionPane.showInputDialog(this,
+                String.format("Book: %s\nCurrent copies: %d\nEnter new copies (0 or more):", book.getTitle(), book.getCopies()),
+                String.valueOf(book.getCopies()));
+        if (copiesStr == null) return;
         try {
-            ApiService.updateBookAvailability(book.getBookID(), newAvail);
-            JOptionPane.showMessageDialog(this, "Availability updated.");
+            int newCopies = Integer.parseInt(copiesStr.trim());
+            ApiService.updateBookCopies(book.getBookID(), newCopies);
+            JOptionPane.showMessageDialog(this, "Copies updated.");
             loadBooks();
+        } catch (NumberFormatException nfe) {
+            JOptionPane.showMessageDialog(this, "Invalid number.");
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Failed to update availability: " + ex.getMessage());
+            JOptionPane.showMessageDialog(this, "Failed to update copies: " + ex.getMessage());
         }
     }
 
     private void loadBooks() {
         try {
             showingBooks = true;
-            List<Book> books = ApiService.getAllBooks();
+            List<Book> books = ApiService.getAllBooksAsList();
             showingBooks = true;
             ordersModel.clear();
             for (Book b : books) ordersModel.addElement(b);

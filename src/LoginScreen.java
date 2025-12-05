@@ -74,20 +74,22 @@ public class LoginScreen extends JFrame {
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        JPanel panel = new JPanel(new GridLayout(5, 1, 10, 10));
+        JPanel panel = new JPanel(new GridLayout(3, 1, 10, 15));
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
         usernameField = new JTextField();
         passwordField = new JPasswordField();
-        loginButton = new JButton("Login");
         registerButton = new JButton("Create New Account");
+        loginButton = new JButton("Login");
+        
 
         panel.add(new JLabel("Username:"));
         panel.add(usernameField);
         panel.add(new JLabel("Password:"));
         panel.add(passwordField);
-        panel.add(loginButton);
+        
         panel.add(registerButton);
+        panel.add(loginButton);
 
         add(panel);
 

@@ -37,6 +37,17 @@ CREATE TABLE OrderItems (
     FOREIGN KEY (bookID) REFERENCES Book(bookID)
 );
 
+CREATE TABLE Reviews (
+    reviewID INT AUTO_INCREMENT PRIMARY KEY,
+    userID INT NOT NULL,
+    bookID INT NOT NULL,
+    rating TINYINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    reviewText TEXT,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userID) REFERENCES Account(userID),
+    FOREIGN KEY (bookID) REFERENCES Book(bookID)
+);
+
 
 IINSERT INTO Account (username, passwordHash, email, userType) VALUES
 ('alice', '$2b$12$orGaEcKkawORkKOVllbDsOB04qJq4o/KJhVrJowC54Or4U.D3Ufu.', 'alice@example.com', 'customer'),

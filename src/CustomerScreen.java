@@ -5,6 +5,9 @@ import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.*;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import models.Book;
@@ -18,6 +21,9 @@ public class CustomerScreen extends JFrame {
     private JTable bookTable;
     private DefaultTableModel bookTableModel;
     private java.util.List<OrderItem> cart;
+    private JButton profileButton;
+    private JButton reviewsButton; 
+    
 
     public CustomerScreen(User user) {
         this.user = user;
@@ -73,10 +79,15 @@ public class CustomerScreen extends JFrame {
         viewCartButton = new JButton("View Cart");
         placeOrderButton = new JButton("Place Order");
         logoutButton = new JButton("Logout");
+        profileButton = new JButton("Profile"); 
+        reviewsButton = new JButton("Reviews");
+
+        bottom.add(profileButton); 
         bottom.add(addToCartButton);
         bottom.add(viewCartButton);
         bottom.add(placeOrderButton);
         bottom.add(logoutButton);
+        bottom.add(reviewsButton);
         panel.add(bottom, BorderLayout.SOUTH);
 
         add(panel);
@@ -87,6 +98,8 @@ public class CustomerScreen extends JFrame {
         viewCartButton.addActionListener(e -> viewCart());
         placeOrderButton.addActionListener(e -> placeOrder());
         logoutButton.addActionListener(e -> logout());
+        profileButton.addActionListener(e -> viewProfile());
+        reviewsButton.addActionListener(e -> viewReviews());
     }
 
     private void searchBooks() {
@@ -214,6 +227,123 @@ public class CustomerScreen extends JFrame {
         }
         sb.append("Total: $").append(bill.get("totalAmount").getAsDouble());
         return sb.toString();
+    }
+
+
+    // ---------- New: Display profile + order history ----------
+    private void viewProfile() {
+        try {
+            JsonArray orders = ApiService.getMyOrders();
+            if (orders.size() == 0) {
+                JOptionPane.showMessageDialog(this, "No past orders found.");
+                return;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            for (JsonElement el : orders) {
+                JsonObject o = el.getAsJsonObject();
+                sb.append("Order ID: ").append(o.get("orderID").getAsString())
+                  .append("  |  Total: $").append(o.get("totalAmount").getAsString())
+                  .append("  |  Status: ").append(o.has("paymentStatus") ? o.get("paymentStatus").getAsString() : "Unknown")
+                  .append("\n");
+                sb.append("Items:\n");
+                if (o.has("items") && o.get("items").isJsonArray()) {
+                    for (JsonElement itEl : o.getAsJsonArray("items")) {
+                        JsonObject it = itEl.getAsJsonObject();
+                        sb.append("  - ").append(it.has("title") && !it.get("title").isJsonNull() ? it.get("title").getAsString() : ("Book#" + it.get("bookID").getAsInt()))
+                          .append(" (").append(it.get("transactionType").getAsString()).append(") $")
+                          .append(String.format("%.2f", it.get("price").getAsDouble()))
+                          .append("\n");
+                    }
+                } else {
+                    sb.append("  (no items)\n");
+                }
+                sb.append("\n");
+            }
+
+             JTextArea ta = new JTextArea(sb.toString());
+            ta.setEditable(false);
+            ta.setLineWrap(true);
+            ta.setWrapStyleWord(true);
+            JScrollPane sp = new JScrollPane(ta);
+            sp.setPreferredSize(new Dimension(700, 400));
+            JOptionPane.showMessageDialog(this, sp, "Order History", JOptionPane.INFORMATION_MESSAGE);
+
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Failed to load profile: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+     // New: view and add reviews for selected book
+    private void viewReviews() {
+        int row = bookTable.getSelectedRow();
+        if (row == -1) {
+            JOptionPane.showMessageDialog(this, "Select a book to view reviews.");
+            return;
+        }
+        int bookID = (int) bookTableModel.getValueAt(row, 0);
+        String title = (String) bookTableModel.getValueAt(row, 1);
+        try {
+            JsonArray reviews = ApiService.getBookReviews(bookID);
+            StringBuilder sb = new StringBuilder();
+            sb.append("Reviews for: ").append(title).append("\n\n");
+            if (reviews.size() == 0) sb.append("(no reviews yet)\n");
+            for (JsonElement el : reviews) {
+                JsonObject r = el.getAsJsonObject();
+                String user = r.has("username") && !r.get("username").isJsonNull() ? r.get("username").getAsString() : ("User#" + r.get("userID").getAsInt());
+                int rating = r.has("rating") ? r.get("rating").getAsInt() : 0;
+                String text = r.has("reviewText") && !r.get("reviewText").isJsonNull() ? r.get("reviewText").getAsString() : "";
+                String created = r.has("createdAt") ? r.get("createdAt").getAsString() : "";
+                sb.append(user).append("  -  ").append(rating).append("/5").append("  ").append(created).append("\n");
+                if (!text.isEmpty()) sb.append("  ").append(text).append("\n");
+                sb.append("\n");
+            }
+
+             JTextArea ta = new JTextArea(sb.toString());
+            ta.setEditable(false);
+            ta.setLineWrap(true);
+            ta.setWrapStyleWord(true);
+            JScrollPane sp = new JScrollPane(ta);
+            sp.setPreferredSize(new Dimension(700, 400));
+
+            Object[] options = {"Add Review", "Close"};
+            int choice = JOptionPane.showOptionDialog(this, sp, "Reviews", JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[1]);
+            if (choice == 0) {
+                showAddReviewDialog(bookID, title);
+            }
+
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Failed to load reviews: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+
+    private void showAddReviewDialog(int bookID, String title) {
+        JPanel p = new JPanel(new BorderLayout(0,5));
+        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        top.add(new JLabel("Rating:"));
+        JComboBox<Integer> ratingCombo = new JComboBox<>(new Integer[]{1,2,3,4,5});
+        top.add(ratingCombo);
+        p.add(top, BorderLayout.NORTH);
+        JTextArea ta = new JTextArea(6,50);
+        ta.setLineWrap(true);
+        ta.setWrapStyleWord(true);
+        p.add(new JScrollPane(ta), BorderLayout.CENTER);
+
+        int ok = JOptionPane.showConfirmDialog(this, p, "Add Review for: " + title, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (ok != JOptionPane.OK_OPTION) return;
+        int rating = (Integer) ratingCombo.getSelectedItem();
+        String text = ta.getText().trim();
+
+        try {
+            JsonObject created = ApiService.postBookReview(bookID, rating, text);
+            JOptionPane.showMessageDialog(this, "Review submitted.");
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Failed to submit review: " + ex.getMessage());
+            ex.printStackTrace();
+        }
     }
 
     private static class OrderItem {

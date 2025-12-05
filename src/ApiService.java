@@ -300,5 +300,70 @@ public static java.util.List<Book> searchBooks(String token, String query) throw
             in.close();
             throw new IOException("Add book failed: " + sbErr.toString());
         }
+
     }
+
+    // ---------------- Customer: Get My Orders ----------------
+    public static JsonArray getMyOrders() throws IOException {
+        if (currentUser == null) throw new IOException("Not logged in");
+
+        URL url = new URL("http://127.0.0.1:5000/orders/my");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + currentUser.getToken());
+
+        int responseCode = conn.getResponseCode();
+        InputStream is = (responseCode == 200) ? conn.getInputStream() : conn.getErrorStream();
+        BufferedReader in = new BufferedReader(new InputStreamReader(is));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = in.readLine()) != null) sb.append(line);
+        in.close();
+
+        if (responseCode != 200) throw new IOException("Fetch my orders failed: " + sb.toString());
+        return JsonParser.parseString(sb.toString()).getAsJsonArray();
+    }
+
+
+    // GET reviews for a specific book
+    public static JsonArray getBookReviews(int bookID) throws IOException {
+        URL url = new URL("http://127.0.0.1:5000/books/" + bookID + "/reviews");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        int code = conn.getResponseCode();
+        InputStream is = (code == 200) ? conn.getInputStream() : conn.getErrorStream();
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(is))) {
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            if (code != 200) throw new IOException("Fetch reviews failed: " + sb.toString());
+            return JsonParser.parseString(sb.toString()).getAsJsonArray();
+        }
+    }
+
+    // POST a review (requires authentication token available as currentUser.getToken())
+    public static JsonObject postBookReview(int bookID, int rating, String text) throws IOException {
+        URL url = new URL("http://127.0.0.1:5000/books/" + bookID + "/reviews");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Content-Type", "application/json");
+        if (currentUser != null && currentUser.getToken() != null) {
+            conn.setRequestProperty("Authorization", "Bearer " + currentUser.getToken());
+        }
+        JsonObject body = new JsonObject();
+        body.addProperty("rating", rating);
+        body.addProperty("text", text == null ? "" : text);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(body.toString().getBytes("utf-8"));
+        }
+        int code = conn.getResponseCode();
+        InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(is))) {
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            if (code < 200 || code >= 300) throw new IOException("Post review failed: " + sb.toString());
+            return JsonParser.parseString(sb.toString()).getAsJsonObject();
+        }
+    }
+
 }

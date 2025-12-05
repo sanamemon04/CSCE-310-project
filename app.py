@@ -425,6 +425,91 @@ def update_book_availability():
     db.commit()
     return jsonify({"message": "Availability updated"})
 
+# ---------- New: User's own orders ----------
+@app.get('/orders/my')
+@jwt_required()
+def my_orders():
+    userID = int(get_jwt_identity())
+    cursor.execute("SELECT * FROM Orders WHERE userID=%s", (userID,))
+    orders = cursor.fetchall() or []
+
+    for o in orders:
+        item_cursor = db.cursor(dictionary=True)
+        try:
+            item_cursor.execute("""
+                SELECT oi.itemID, oi.bookID, oi.transactionType, oi.price, b.title
+                FROM OrderItems oi
+                LEFT JOIN Book b ON oi.bookID = b.bookID
+                WHERE oi.orderID = %s
+            """, (o['orderID'],))
+            items = item_cursor.fetchall() or []
+        finally:
+            item_cursor.close()
+
+        for it in items:
+            try:
+                it['price'] = float(it.get('price') or 0.0)
+            except Exception:
+                it['price'] = 0.0
+            if not it.get('transactionType'):
+                it['transactionType'] = 'buy'
+            if 'title' not in it:
+                it['title'] = None
+        
+        o['items'] = items
+
+    return jsonify(orders)
+
+# GET reviews for a book
+@app.get('/books/<int:book_id>/reviews')
+def get_book_reviews(book_id):
+    cur = db.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT r.reviewID, r.userID, a.username, r.rating, r.reviewText, r.createdAt
+            FROM Reviews r
+            LEFT JOIN Account a ON r.userID = a.userID
+            WHERE r.bookID = %s
+            ORDER BY r.createdAt DESC
+        """, (book_id,))
+        reviews = cur.fetchall() or []
+        # ensure serializable types
+        for r in reviews:
+            if 'rating' in r:
+                r['rating'] = int(r['rating'])
+        return jsonify(reviews)
+    finally:
+        cur.close()
+        
+# POST a review (auth required)
+@app.post('/books/<int:book_id>/reviews')
+@jwt_required()
+def post_book_review(book_id):
+    data = request.get_json() or {}
+    rating = data.get('rating')
+    text = data.get('text', '')
+    if not isinstance(rating, int) or not (1 <= rating <= 5):
+        return jsonify({"msg": "rating must be int 1-5"}), 400
+    user_id = int(get_jwt_identity())
+    cur = db.cursor()
+    try:
+        cur.execute("INSERT INTO Reviews (userID, bookID, rating, reviewText) VALUES (%s,%s,%s,%s)",
+                    (user_id, book_id, rating, text))
+        db.commit()
+        review_id = cur.lastrowid
+        # return created review object
+        rcur = db.cursor(dictionary=True)
+        try:
+            rcur.execute("SELECT r.reviewID, r.userID, a.username, r.rating, r.reviewText, r.createdAt FROM Reviews r LEFT JOIN Account a ON r.userID=a.userID WHERE r.reviewID=%s", (review_id,))
+            created = rcur.fetchone()
+            if created and 'rating' in created:
+                created['rating'] = int(created['rating'])
+            return jsonify(created), 201
+        finally:
+            rcur.close()
+    finally:
+        cur.close()
+
 # -------------------------------------
 # Run Server
 # -------------------------------------

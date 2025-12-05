@@ -74,16 +74,64 @@ def login():
 @app.get('/books/search')
 @jwt_required()
 def search_books():
-    q = request.args.get("q", "")
-    if not q:
-        return jsonify([])  # return empty list if no query
+    # q = request.args.get("q", "")
+    # if not q:
+    #     return jsonify([])  # return empty list if no query
 
-    keyword = f"%{q}%"
-    cursor.execute("""
-        SELECT * FROM Book
-        WHERE title LIKE %s OR author LIKE %s
-    """, (keyword, keyword))
-    rows = cursor.fetchall()
+    # keyword = f"%{q}%"
+    # cursor.execute("""
+    #     SELECT * FROM Book
+    #     WHERE title LIKE %s OR author LIKE %s
+    # """, (keyword, keyword))
+    # rows = cursor.fetchall()
+    q = request.args.get("q", "").strip()
+    genre = request.args.get("genre", None)
+    pub_year = request.args.get("publicationYear", None)
+    pub_from = request.args.get("publicationYearFrom", None)
+    pub_to = request.args.get("publicationYearTo", None)
+
+    clauses = []
+    params = []
+
+    if q:
+        kw = f"%{q}%"
+        clauses.append("(title LIKE %s OR author LIKE %s OR genre LIKE %s)")
+        params.extend([kw, kw, kw])
+
+    if genre:
+        clauses.append("genre LIKE %s")
+        params.append(f"%{genre}%")
+
+    if pub_year:
+        try:
+            py = int(pub_year)
+            clauses.append("publicationYear = %s")
+            params.append(py)
+        except:
+            pass
+        
+    if pub_from:
+        try:
+            pf = int(pub_from)
+            clauses.append("publicationYear >= %s")
+            params.append(pf)
+        except:
+            pass
+
+    if pub_to:
+        try:
+            pt = int(pub_to)
+            clauses.append("publicationYear <= %s")
+            params.append(pt)
+        except:
+            pass
+
+    sql = "SELECT * FROM Book"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+
+    cursor.execute(sql, tuple(params))
+    rows = cursor.fetchall() or []
 
     # Normalize isAvailable -> True/False so Gson on the Java side parses booleans, not numbers
     for r in rows:
@@ -425,16 +473,35 @@ def add_book():
     claims = get_jwt()
     if claims["userType"] != "manager":
         return jsonify({"error": "Only managers can add books"}), 403
+    data = request.json or {}
+    title = data.get("title")
+    author = data.get("author")
+    genre = data.get("genre")
+    publicationYear = data.get("publicationYear")
+    try:
+        publicationYear = int(publicationYear) if publicationYear is not None and publicationYear != "" else None
+    except:
+        publicationYear = None
 
-    data = request.json
+    try:
+        buyPrice = float(data.get("buyPrice", 0.0))
+    except:
+        return jsonify({"error": "buyPrice must be numeric"}), 400
+    try:
+        rentPrice = float(data.get("rentPrice", 0.0))
+    except:
+        return jsonify({"error": "rentPrice must be numeric"}), 400
+
+    isAvailable = int(data.get("isAvailable", 1))
+    copies = int(data.get("copies", 1))
+    location = data.get("location")
+
     cursor.execute("""
-        INSERT INTO Book (title, author, genre, publicationYear, buyPrice, rentPrice, isAvailable)
+        INSERT INTO Book (title, author, genre, publicationYear, buyPrice, rentPrice, isAvailable, copies, location)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
-        data["title"], data["author"],
-        data.get("genre"), data.get("publicationYear"),
-        data("buyPrice"), data("rentPrice"),
-        int(data.get("isAvailable", 1)), int(data.get("copies", 1)), data.get("location")
+        title, author, genre, publicationYear,
+        buyPrice, rentPrice, isAvailable, copies, location
     ))
     db.commit()
     return jsonify({"message": "Book added", "bookID": cursor.lastrowid})
@@ -626,38 +693,62 @@ def set_book_copies():
     return jsonify({"message": "Copies updated", "bookID": bookID, "copies": copies})
 
 
+
+# ...existing code...
+
 @app.post('/books/metadata')
 @jwt_required()
 def update_book_metadata():
-    claims = get_jwt()
-    if claims.get("userType") != "manager":
-        return jsonify({"error": "Only managers can update metadata"}), 403
+    try:
+        claims = get_jwt()
+        payload = request.json or {}
+        app.logger.info("books/metadata called, claims=%s, payload=%s", claims, payload)
 
-    data = request.json or {}
-    bookID = data.get("bookID")
-    if bookID is None:
-        return jsonify({"error": "bookID required"}), 400
+        if claims.get("userType") != "manager":
+            return jsonify({"error": "Only managers can update metadata", "claims": claims}), 403
 
-    updates = []
-    params = []
-    if 'genre' in data:
-        updates.append("genre=%s"); params.append(data.get('genre'))
-    if 'publicationYear' in data:
-        updates.append("publicationYear=%s"); params.append(data.get('publicationYear'))
-    if 'location' in data:
-        updates.append("location=%s"); params.append(data.get('location'))
-    if 'copies' in data:
-        updates.append("copies=%s"); params.append(int(data.get('copies')))
+        bookID = payload.get("bookID")
+        if not bookID:
+            return jsonify({"error": "bookID is required", "received": payload}), 400
 
-    if not updates:
-        return jsonify({"error": "no fields provided"}), 400
-    
-    params.append(bookID)
-    sql = "UPDATE Book SET " + ", ".join(updates) + " WHERE bookID=%s"
-    cursor.execute(sql, tuple(params))
-    db.commit()
-    return jsonify({"message": "Book metadata updated", "bookID": bookID})
+        updates = []
+        params = []
 
+        # support updates for genre, publicationYear, location, copies
+        if 'genre' in payload:
+            updates.append("genre=%s"); params.append(payload.get('genre'))
+        if 'publicationYear' in payload:
+            try:
+                params.append(int(payload.get('publicationYear')))
+                updates.append("publicationYear=%s")
+            except:
+                pass
+        if 'location' in payload:
+            updates.append("location=%s"); params.append(payload.get('location'))
+
+        # If copies provided, also update isAvailable accordingly
+        if 'copies' in payload:
+            try:
+                copies_val = int(payload.get('copies'))
+            except:
+                copies_val = None
+            if copies_val is not None:
+                updates.append("copies=%s"); params.append(copies_val)
+                # set isAvailable based on copies: available if copies > 0
+                updates.append("isAvailable=%s"); params.append(1 if copies_val > 0 else 0)
+
+        if not updates:
+            return jsonify({"error": "no updatable fields provided"}), 400
+
+        params.append(bookID)
+        sql = "UPDATE Book SET " + ", ".join(updates) + " WHERE bookID=%s"
+        cursor.execute(sql, tuple(params))
+        db.commit()
+
+        return jsonify({"message": "Book metadata updated", "bookID": bookID})
+    except Exception as e:
+        app.logger.exception("Failed to update book metadata")
+        return jsonify({"error": "internal server error", "detail": str(e)}), 500
 
 # -------------------------------------
 # Run Server

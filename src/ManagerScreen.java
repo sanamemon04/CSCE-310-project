@@ -255,9 +255,10 @@ public class ManagerScreen extends JFrame {
             if (!yearField.getText().trim().isEmpty()) newYear = Integer.parseInt(yearField.getText().trim());
 
 
-            ApiService.updateBookCopies(book.getBookID(), newCopies);
-            ApiService.updateBookLocation(book.getBookID(), newLocation);
-            ApiService.updateBookMetadata(book.getBookID(), newGenre, newYear, null, null);
+            // ApiService.updateBookCopies(book.getBookID(), newCopies);
+            // ApiService.updateBookLocation(book.getBookID(), newLocation);
+            // correct argument order: (bookID, genre, publicationYear, location, copies)
+            ApiService.updateBookMetadata(book.getBookID(), newGenre, newYear, newLocation, newCopies);
 
             JOptionPane.showMessageDialog(this, "Book updated.");
             loadBooks();

@@ -17,6 +17,8 @@ public class CustomerScreen extends JFrame {
 
     private User user;
     private JTextField searchField;
+    private JTextField genreField;        
+    private JTextField yearField;
     private JButton searchButton, addToCartButton, viewCartButton, placeOrderButton, logoutButton;
     private JTable bookTable;
     private DefaultTableModel bookTableModel;
@@ -45,9 +47,21 @@ public class CustomerScreen extends JFrame {
         searchField = new JTextField(30);
         searchButton = new JButton("Search");
         viewAllButton = new JButton("View All Books");
+
+        genreField = new JTextField(12);   // filter by genre
+        genreField.setToolTipText("Filter: genre (optional)");
+        yearField = new JTextField(6);     // filter by publication year
+        yearField.setToolTipText("Filter: publication year (optional)");
+
+
+        topPanel.add(new JLabel("Search:"));
         topPanel.add(searchField);
-        topPanel.add(searchButton);
+        topPanel.add(new JLabel("Genre:"));
+        topPanel.add(genreField);
+        topPanel.add(new JLabel("Year:"));
+        topPanel.add(yearField);
         topPanel.add(viewAllButton);
+        topPanel.add(searchButton);
         panel.add(topPanel, BorderLayout.NORTH);
 
         // Table
@@ -66,8 +80,8 @@ public class CustomerScreen extends JFrame {
          // set preferred column widths so Title isn't truncated
         TableColumnModel tcm = bookTable.getColumnModel();
         if (tcm.getColumnCount() >= 2) {
-            tcm.getColumn(0).setPreferredWidth(50);   // ID
-            tcm.getColumn(1).setPreferredWidth(300);  // Title (larger)
+            tcm.getColumn(0).setPreferredWidth(70);   // ID
+            tcm.getColumn(1).setPreferredWidth(220);  // Title (larger)
             tcm.getColumn(2).setPreferredWidth(140);  // Author
         }
 
@@ -141,13 +155,28 @@ public class CustomerScreen extends JFrame {
 
     private void searchBooks() {
         String query = searchField.getText().trim();
-        if (query.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Enter search term.");
-            return;
+        String genre = genreField.getText().trim();
+        String yearTxt = yearField.getText().trim();
+        Integer year = null;
+        if (!yearTxt.isEmpty()) {
+            try { year = Integer.parseInt(yearTxt); } catch (NumberFormatException nfe) {
+                JOptionPane.showMessageDialog(this, "Publication year must be a number.");
+                return;
+            }
         }
 
+        // if (query.isEmpty()) {
+        //     JOptionPane.showMessageDialog(this, "Enter search term.");
+        //     return;
+        // }
+
         try {
-            java.util.List<Book> books = ApiService.searchBooks(query);
+            // java.util.List<Book> books = ApiService.searchBooks(query);
+            java.util.List<Book> books = ApiService.searchBooks(
+                query.isEmpty() ? null : query,
+                genre.isEmpty() ? null : genre,
+                year
+            );
             bookTableModel.setRowCount(0);
             for (Book b : books) {
                 bookTableModel.addRow(new Object[]{

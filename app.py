@@ -89,6 +89,9 @@ def search_books():
     for r in rows:
         r['isAvailable'] = bool(r.get('isAvailable'))
         r['copies'] = int(r.get('copies') or 0)
+        r['location'] = r.get('location')
+        r['genre'] = r.get('genre')
+        r['publicationYear'] = int(r['publicationYear']) if r.get('publicationYear') is not None else None
 
     return jsonify(rows)
 
@@ -425,12 +428,13 @@ def add_book():
 
     data = request.json
     cursor.execute("""
-        INSERT INTO Book (title, author, buyPrice, rentPrice, isAvailable)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO Book (title, author, genre, publicationYear, buyPrice, rentPrice, isAvailable)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         data["title"], data["author"],
-        data["buyPrice"], data["rentPrice"],
-        data.get("isAvailable", 1)
+        data.get("genre"), data.get("publicationYear"),
+        data("buyPrice"), data("rentPrice"),
+        int(data.get("isAvailable", 1)), int(data.get("copies", 1)), data.get("location")
     ))
     db.commit()
     return jsonify({"message": "Book added", "bookID": cursor.lastrowid})
@@ -620,6 +624,39 @@ def set_book_copies():
     cursor.execute("UPDATE Book SET copies=%s, isAvailable=IF(%s>0,1,0) WHERE bookID=%s", (copies, copies, bookID))
     db.commit()
     return jsonify({"message": "Copies updated", "bookID": bookID, "copies": copies})
+
+
+@app.post('/books/metadata')
+@jwt_required()
+def update_book_metadata():
+    claims = get_jwt()
+    if claims.get("userType") != "manager":
+        return jsonify({"error": "Only managers can update metadata"}), 403
+
+    data = request.json or {}
+    bookID = data.get("bookID")
+    if bookID is None:
+        return jsonify({"error": "bookID required"}), 400
+
+    updates = []
+    params = []
+    if 'genre' in data:
+        updates.append("genre=%s"); params.append(data.get('genre'))
+    if 'publicationYear' in data:
+        updates.append("publicationYear=%s"); params.append(data.get('publicationYear'))
+    if 'location' in data:
+        updates.append("location=%s"); params.append(data.get('location'))
+    if 'copies' in data:
+        updates.append("copies=%s"); params.append(int(data.get('copies')))
+
+    if not updates:
+        return jsonify({"error": "no fields provided"}), 400
+    
+    params.append(bookID)
+    sql = "UPDATE Book SET " + ", ".join(updates) + " WHERE bookID=%s"
+    cursor.execute(sql, tuple(params))
+    db.commit()
+    return jsonify({"message": "Book metadata updated", "bookID": bookID})
 
 
 # -------------------------------------

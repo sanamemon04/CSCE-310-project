@@ -26,14 +26,19 @@ public class ManagerScreen extends JFrame {
             if (value instanceof Book) {
                 Book b = (Book) value;
                 html = String.format(
-                    "<html><div style='width:600px;padding:6px;'>"
+                    "<html><div style='width:700px;padding:6px;'>"
                     + "<b>%d: %s</b> — %s<br/>"
+                    + "Genre: %s &nbsp;&nbsp; Year: %s<br/>"
                     + "Buy: $%.2f &nbsp;&nbsp; Rent: $%.2f<br/>"
-                    + "<i>%s</i>"
+                    + "<i>%s</i><br/>"
+                    + "Location: %s"
                     + "</div></html>",
                     b.getBookID(), escapeHtml(b.getTitle()), escapeHtml(b.getAuthor()),
+                    escapeHtml(b.getGenre() == null ? "N/A" : b.getGenre()),
+                    escapeHtml(b.getPublicationYear() == null ? "N/A" : b.getPublicationYear().toString()),
                     b.getBuyPrice(), b.getRentPrice(),
-                    b.isAvailable() ? "<span style='color:green;'>Available</span>" : "<span style='color:red;'>Unavailable</span>"
+                    b.isAvailable() ? "<span style='color:green;'>Available</span>" : "<span style='color:red;'>Unavailable</span>",
+                    escapeHtml(b.getLocation() == null ? "N/A" : b.getLocation())
                 );
             } else if (value instanceof com.google.gson.JsonObject) {
                 JsonObject o = (JsonObject) value;
@@ -88,7 +93,7 @@ public class ManagerScreen extends JFrame {
         addBookButton = new JButton("Add Book");
         logoutButton = new JButton("Logout");
         viewBooksButton = new JButton("View All Books");
-        updateAvailabilityButton = new JButton("Update Availability");
+        updateAvailabilityButton = new JButton("Update Book Info");
 
         leftPanel.add(viewOrdersButton);
         leftPanel.add(updateStatusButton);
@@ -174,10 +179,15 @@ public class ManagerScreen extends JFrame {
         JTextField authorField = new JTextField();
         JTextField buyField = new JTextField();
         JTextField rentField = new JTextField();
+        JTextField genreField = new JTextField();
+        JTextField yearField = new JTextField();
+
 
         Object[] fields = {
                 "Title:", titleField,
                 "Author:", authorField,
+                "Genre:", genreField,
+                "Publication Year:", yearField,
                 "Buy Price:", buyField,
                 "Rent Price:", rentField
         };
@@ -190,9 +200,14 @@ public class ManagerScreen extends JFrame {
             String author = authorField.getText();
             double buyPrice = Double.parseDouble(buyField.getText());
             double rentPrice = Double.parseDouble(rentField.getText());
+            String genre = genreField.getText().trim();
+            Integer pubYear = null;
+            if (!yearField.getText().trim().isEmpty()) pubYear = Integer.parseInt(yearField.getText().trim());
 
             // construct models.Book and call ApiService.addBook
             Book book = new Book(0, title, author, buyPrice, rentPrice, true);
+            book.setGenre(genre);
+            book.setPublicationYear(pubYear);
             ApiService.addBook(book);
 
             JOptionPane.showMessageDialog(this, "Book added successfully!");
@@ -216,19 +231,40 @@ public class ManagerScreen extends JFrame {
             return;
         }
         Book book = (Book) sel;
-        String copiesStr = JOptionPane.showInputDialog(this,
-                String.format("Book: %s\nCurrent copies: %d\nEnter new copies (0 or more):", book.getTitle(), book.getCopies()),
-                String.valueOf(book.getCopies()));
-        if (copiesStr == null) return;
+        JTextField copiesField = new JTextField(String.valueOf(book.getCopies()));
+        JTextField locationField = new JTextField(book.getLocation() == null ? "" : book.getLocation());
+        JTextField genreField = new JTextField(book.getGenre() == null ? "" : book.getGenre());
+        JTextField yearField = new JTextField(book.getPublicationYear() == null ? "" : book.getPublicationYear().toString());
+
+
+        Object[] fields = {
+            "Book: " + book.getTitle(),
+            "Copies:", copiesField,
+            "Location (aisle):", locationField,
+            "Genre:", genreField,
+            "Publication Year:", yearField
+        };
+
+        int ok = JOptionPane.showConfirmDialog(this, fields, "Update Book", JOptionPane.OK_CANCEL_OPTION);
+        if (ok != JOptionPane.OK_OPTION) return;
         try {
-            int newCopies = Integer.parseInt(copiesStr.trim());
+            int newCopies = Integer.parseInt(copiesField.getText().trim());
+            String newLocation = locationField.getText().trim();
+            String newGenre = genreField.getText().trim();
+            Integer newYear = null;
+            if (!yearField.getText().trim().isEmpty()) newYear = Integer.parseInt(yearField.getText().trim());
+
+
             ApiService.updateBookCopies(book.getBookID(), newCopies);
-            JOptionPane.showMessageDialog(this, "Copies updated.");
+            ApiService.updateBookLocation(book.getBookID(), newLocation);
+            ApiService.updateBookMetadata(book.getBookID(), newGenre, newYear, null, null);
+
+            JOptionPane.showMessageDialog(this, "Book updated.");
             loadBooks();
         } catch (NumberFormatException nfe) {
-            JOptionPane.showMessageDialog(this, "Invalid number.");
+            JOptionPane.showMessageDialog(this, "Invalid number for copies.");
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Failed to update copies: " + ex.getMessage());
+            JOptionPane.showMessageDialog(this, "Failed to update book: " + ex.getMessage());
         }
     }
 

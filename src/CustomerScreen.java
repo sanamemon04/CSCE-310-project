@@ -51,7 +51,7 @@ public class CustomerScreen extends JFrame {
         panel.add(topPanel, BorderLayout.NORTH);
 
         // Table
-        String[] columns = {"ID", "Title", "Author", "Buy Price", "Rent Price", "Available", "Copies","Action"};
+        String[] columns = {"ID", "Title", "Author", "Genre", "Year", "Buy Price", "Rent Price", "Available", "Copies", "Location","Action"};
         bookTableModel = new DefaultTableModel(columns, 0) {
             @Override public boolean isCellEditable(int row, int column) {
                 // Allow editing only the Action column (last column)
@@ -61,6 +61,15 @@ public class CustomerScreen extends JFrame {
         bookTable = new JTable(bookTableModel);
         bookTable.setRowHeight(28); // slightly taller
         bookTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+
+
+         // set preferred column widths so Title isn't truncated
+        TableColumnModel tcm = bookTable.getColumnModel();
+        if (tcm.getColumnCount() >= 2) {
+            tcm.getColumn(0).setPreferredWidth(50);   // ID
+            tcm.getColumn(1).setPreferredWidth(300);  // Title (larger)
+            tcm.getColumn(2).setPreferredWidth(140);  // Author
+        }
 
         // Dropdown always visible
         JComboBox<String> actionCombo = new JComboBox<>(new String[]{"buy", "rent"});
@@ -145,10 +154,13 @@ public class CustomerScreen extends JFrame {
                         b.getBookID(),
                         b.getTitle(),
                         b.getAuthor(),
+                        b.getGenre() == null ? "" : b.getGenre(),
+                        b.getPublicationYear() == null ? "" : String.valueOf(b.getPublicationYear()),
                         b.getBuyPrice(),
                         b.getRentPrice(),
                         b.isAvailable() ? "Yes" : "No",
                         b.getCopies(),
+                        b.getLocation(),
                         "buy"
                 });
             }
@@ -175,12 +187,19 @@ public class CustomerScreen extends JFrame {
             int id = b.has("bookID") && !b.get("bookID").isJsonNull() ? b.get("bookID").getAsInt() : -1;
             String title = b.has("title") && !b.get("title").isJsonNull() ? b.get("title").getAsString() : "";
             String author = b.has("author") && !b.get("author").isJsonNull() ? b.get("author").getAsString() : "";
+            String genre = b.has("genre") && !b.get("genre").isJsonNull() ? b.get("genre").getAsString() : "";
+            Integer year = b.has("publicationYear") && !b.get("publicationYear").isJsonNull() ? b.get("publicationYear").getAsInt() : null;
             double buy = b.has("buyPrice") && !b.get("buyPrice").isJsonNull() ? b.get("buyPrice").getAsDouble() : 0.0;
             double rent = b.has("rentPrice") && !b.get("rentPrice").isJsonNull() ? b.get("rentPrice").getAsDouble() : 0.0;
             boolean avail = b.has("isAvailable") && !b.get("isAvailable").isJsonNull() && b.get("isAvailable").getAsBoolean();
             int copies = b.has("copies") && !b.get("copies").isJsonNull() ? b.get("copies").getAsInt() : 0;
+            String location = b.has("location") && !b.get("location").isJsonNull() ? b.get("location").getAsString() : null;
 
-            bookTableModel.addRow(new Object[]{id, title, author, String.format("%.2f", buy), String.format("%.2f", rent), avail, copies, "buy"});
+            bookTableModel.addRow(new Object[]{
+                id, title, author, genre, year == null ? "" : year.toString(),
+                String.format("%.2f", buy), String.format("%.2f", rent),
+                avail ? "Yes" : "No", copies, location, "buy"
+            });
         }
     }
 
@@ -209,19 +228,20 @@ public class CustomerScreen extends JFrame {
             String title = String.valueOf(bookTableModel.getValueAt(row, 1));
             String author = String.valueOf(bookTableModel.getValueAt(row, 2));
 
-            Object buyObj = bookTableModel.getValueAt(row, 3);
+           // Updated indices to match columns layout
+            Object buyObj = bookTableModel.getValueAt(row, 5);   // Buy Price
             double buyPrice = (buyObj instanceof Number) ? ((Number) buyObj).doubleValue() : Double.parseDouble(String.valueOf(buyObj));
 
-            Object rentObj = bookTableModel.getValueAt(row, 4);
+            Object rentObj = bookTableModel.getValueAt(row, 6);  // Rent Price
             double rentPrice = (rentObj instanceof Number) ? ((Number) rentObj).doubleValue() : Double.parseDouble(String.valueOf(rentObj));
 
-            Object availObj = bookTableModel.getValueAt(row, 5);
+            Object availObj = bookTableModel.getValueAt(row, 7); // Available
             boolean avail = "Yes".equalsIgnoreCase(String.valueOf(availObj)) || "true".equalsIgnoreCase(String.valueOf(availObj));
 
-            Object copiesObj = bookTableModel.getValueAt(row, 6);
+            Object copiesObj = bookTableModel.getValueAt(row, 8); // Copies
             int copies = (copiesObj instanceof Number) ? ((Number) copiesObj).intValue() : Integer.parseInt(String.valueOf(copiesObj));
 
-            Object actionObj = bookTableModel.getValueAt(row, 7);
+            Object actionObj = bookTableModel.getValueAt(row, 10); // Action column
             String action = actionObj == null ? "buy" : actionObj.toString();
 
             if (!avail || copies <= 0) {
@@ -231,6 +251,16 @@ public class CustomerScreen extends JFrame {
 
             Book book = new Book(bookID, title, author, buyPrice, rentPrice, avail);
             book.setCopies(copies);
+            try {
+                Object genreObj = bookTableModel.getValueAt(row, 3);
+                if (genreObj != null) book.setGenre(String.valueOf(genreObj));
+                Object yearObj = bookTableModel.getValueAt(row, 4);
+                if (yearObj != null && !String.valueOf(yearObj).isEmpty()) book.setPublicationYear(Integer.parseInt(String.valueOf(yearObj)));
+                Object locObj = bookTableModel.getValueAt(row, 9);
+                if (locObj != null) book.setLocation(String.valueOf(locObj));
+            } catch (Exception ignored) {}
+
+
             cart.add(new OrderItem(book, action)); // uses existing nested OrderItem
             addedCount++;
         }
@@ -238,6 +268,7 @@ public class CustomerScreen extends JFrame {
         StringBuilder msg = new StringBuilder();
         msg.append("Added ").append(addedCount).append(" item").append(addedCount == 1 ? "" : "s").append(" to cart.");
         if (!skipped.isEmpty()) msg.append(" Skipped: ").append(String.join(", ", skipped));
+
 
         JOptionPane.showMessageDialog(this, msg.toString());
     }

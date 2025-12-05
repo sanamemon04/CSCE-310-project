@@ -77,10 +77,13 @@ CREATE TABLE Book (
     bookID INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     author VARCHAR(255) NOT NULL,
+    genre VARCHAR(255) DEFAULT NULL,
+    publicationYear INT DEFAULT NULL,
     buyPrice DECIMAL(10,2) NOT NULL,
     rentPrice DECIMAL(10,2) NOT NULL,
     isAvailable BOOLEAN DEFAULT TRUE,
-    copies INT DEFAULT 1 
+    copies INT DEFAULT 1, 
+    location VARCHAR(255) DEFAULT NULL
 );
 
 CREATE TABLE Orders (
@@ -122,9 +125,9 @@ INSERT INTO Account (username, passwordHash, email, userType) VALUES
 ('bob',   '$2b$12$MYEU/ZApXKHb5j1VaRFm2OKQu1uwa5VpDEgD8VftSog/iG1h.sa7.', 'bob@example.com', 'manager');
 
 
-INSERT INTO Book (title, author, buyPrice, rentPrice, isAvailable, copies) VALUES
-('The Great Gatsby', 'F. Scott Fitzgerald', 10.99, 3.99, TRUE, 3),
-('1984', 'George Orwell', 12.50, 4.25, TRUE, 2),
-('Dune', 'Frank Herbert', 15.00, 5.00, TRUE, 4);
+INSERT INTO Book (title, author, buyPrice, rentPrice, isAvailable, copies, location) VALUES
+('The Great Gatsby', 'F. Scott Fitzgerald', 10.99, 3.99, TRUE, 3, 'Aisle 3'),
+('1984', 'George Orwell', 12.50, 4.25, TRUE, 2, 'Aisle 1'),
+('Dune', 'Frank Herbert', 15.00, 5.00, TRUE, 4, 'Aisle 5');
 
 

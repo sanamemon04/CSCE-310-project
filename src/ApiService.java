@@ -274,36 +274,76 @@ public static java.util.List<Book> searchBooks(String token, String query) throw
     }
 
     // ---------------- Manager: Add Book ----------------
+    // ...existing code...
     public static void addBook(Book book) throws IOException {
-        if (currentUser == null) throw new IOException("Not logged in");
-
         URL url = new URL("http://127.0.0.1:5000/books/add");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        if (currentUser != null && currentUser.getToken() != null) {
+            conn.setRequestProperty("Authorization", "Bearer " + currentUser.getToken());
+        }
+        conn.setDoOutput(true);
+
+        JsonObject body = new JsonObject();
+        body.addProperty("title", book.getTitle());
+        body.addProperty("author", book.getAuthor());
+        body.addProperty("genre", book.getGenre());
+        if (book.getPublicationYear() != null) body.addProperty("publicationYear", book.getPublicationYear());
+        body.addProperty("buyPrice", book.getBuyPrice());
+        body.addProperty("rentPrice", book.getRentPrice());
+        body.addProperty("isAvailable", book.isAvailable() ? 1 : 0);
+        body.addProperty("copies", book.getCopies());
+        body.addProperty("location", book.getLocation());
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(body.toString().getBytes("utf-8"));
+            os.flush();
+        }
+
+        int code = conn.getResponseCode();
+        InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(is))) {
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            if (code < 200 || code >= 300) throw new IOException("Add book failed: " + sb.toString());
+        }
+    }
+
+    // NEW: update genre/publicationYear/location/copies
+    public static void updateBookMetadata(int bookID, String genre, Integer publicationYear, String location, Integer copies) throws IOException {
+        if (currentUser == null || currentUser.getToken() == null) throw new IOException("Not logged in");
+
+        URL url = new URL("http://127.0.0.1:5000/books/metadata");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + currentUser.getToken());
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setDoOutput(true);
 
-        Gson gson = new Gson();
-        String payload = gson.toJson(book);
+        JsonObject payload = new JsonObject();
+        payload.addProperty("bookID", bookID);
+        if (genre != null) payload.addProperty("genre", genre);
+        if (publicationYear != null) payload.addProperty("publicationYear", publicationYear);
+        if (location != null) payload.addProperty("location", location);
+        if (copies != null) payload.addProperty("copies", copies);
 
         try (OutputStream os = conn.getOutputStream()) {
-            os.write(payload.getBytes());
+            os.write(payload.toString().getBytes("utf-8"));
             os.flush();
         }
 
-        int responseCode = conn.getResponseCode();
-        if (responseCode != 200) {
-            InputStream err = conn.getErrorStream();
-            BufferedReader in = new BufferedReader(new InputStreamReader(err));
-            StringBuilder sbErr = new StringBuilder();
-            String line;
-            while ((line = in.readLine()) != null) sbErr.append(line);
-            in.close();
-            throw new IOException("Add book failed: " + sbErr.toString());
+        int code = conn.getResponseCode();
+        if (code != 200) {
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getErrorStream()));
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            throw new IOException("Update metadata failed: " + sb.toString());
         }
-
     }
+
+    
+    
 
     // ---------------- Customer: Get My Orders ----------------
     public static JsonArray getMyOrders() throws IOException {
@@ -422,6 +462,34 @@ public static java.util.List<Book> searchBooks(String token, String query) throw
             while ((line = in.readLine()) != null) sb.append(line);
             if (code < 200 || code >= 300) throw new IOException("Post review failed: " + sb.toString());
             return JsonParser.parseString(sb.toString()).getAsJsonObject();
+        }
+    }
+
+    public static void updateBookLocation(int bookID, String location) throws IOException {
+        if (currentUser == null) throw new IOException("Not logged in");
+
+        URL url = new URL("http://127.0.0.1:5000/books/location");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + currentUser.getToken());
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        JsonObject payload = new JsonObject();
+        payload.addProperty("bookID", bookID);
+        payload.addProperty("location", location == null ? "" : location);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(payload.toString().getBytes("utf-8"));
+            os.flush();
+        }
+
+        int code = conn.getResponseCode();
+        if (code != 200) {
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getErrorStream()));
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = in.readLine()) != null) sb.append(line);
+            throw new IOException("Update location failed: " + sb.toString());
         }
     }
 
